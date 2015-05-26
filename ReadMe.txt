@@ -26,3 +26,9 @@ synapses over the soma, basal and distal dendrites.
 
 The Matlab files i.e. "makestim_GABAgamma_stim.m" are used to generate
 the oscillatory inhibitory inputs at different frequencies.
+
+20150525 Update from Ted Carnevale: Fixed ca initialization by
+inserting cai = ca into INITIAL block.  Changed integration method
+from euler to derivimplicit which is appropriate for simple ion
+accumulation mechanisms.  See Integration methods for SOLVE statements
+http://www.neuron.yale.edu/phpBB/viewtopic.php?f=28&t=592

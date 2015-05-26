@@ -27,8 +27,13 @@ TITLE decay of internal calcium concentration
 :
 : Written by Alain Destexhe, Salk Institute, Nov 12, 1992
 :
-
-INDEPENDENT {t FROM 0 TO 1 WITH 1 (ms)}
+: 20150525 NTC
+: Fixed ca initialization by inserting cai = ca into INITIAL block.
+: Changed integration method from euler to derivimplicit
+: which is appropriate for simple ion accumulation mechanisms.
+: See
+: Integration methods for SOLVE statements
+: http://www.neuron.yale.edu/phpBB/viewtopic.php?f=28&t=592
 
 NEURON {
 	SUFFIX cad2
@@ -60,6 +65,7 @@ STATE {
 
 INITIAL {
 	ca = cainf
+  cai = ca
 }
 
 ASSIGNED {
@@ -68,21 +74,15 @@ ASSIGNED {
 }
 	
 BREAKPOINT {
-	SOLVE state METHOD euler
+        SOLVE state METHOD derivimplicit : not euler
+    : see http://www.neuron.yale.edu/phpBB/viewtopic.php?f=28&t=592
 }
 
 DERIVATIVE state { 
-
 	drive_channel =  - (10000) * ica / (2 * FARADAY * depth)
 	if (drive_channel <= 0.) { drive_channel = 0. }	: cannot pump inward
 
 	ca' = drive_channel + (cainf-ca)/taur
 	cai = ca
 }
-
-
-
-
-
-
 
