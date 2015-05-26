@@ -1,0 +1,484 @@
+/* --------------------------------------------------------------
+   mainfile for oscillatory inhibition onto the layer V pyramidal neuron
+
+
+
+   The Neuron Model code is adapted from Mainen Nature 1996.
+   Parameters are based on "Schaefer, Larkum, Sakmann, Roth
+   "Coincidence detection in pyramidal neurons is tuned by their
+   dendritic branching pattern" J. Neurophysiol. 89:3134-3154, 2003
+ 
+   -------------------------------------------------------------- */
+
+load_file("nrngui.hoc")
+
+objref axonal, dendritic, dendritic_only, distaldend, basaldend
+
+create soma,iseg,hill,myelin[2],node[2], dend11[1]
+
+// --------------------------------------------------------------
+// passive & active membrane 
+// --------------------------------------------------------------
+
+ra        = 150			
+global_ra = ra
+rm        = 30000			
+c_m       = 0.75
+cm_myelin = 0.04
+g_pas_node = 0.02
+
+v_init    = -70            
+celsius   = 34			
+
+Ek = -90
+Ena = 60
+
+gna_dend =50                           //(pS/um2)
+gna_node =30000                       
+gna_soma =54                         
+gna_myelin =80                    
+
+gkv_axon = 2000
+gkv_soma = 300 
+gkv_dend = 1
+
+
+gca_soma = 0
+gca_dend =0.1
+gca_proximal=3
+
+ghbar=0.001      //mho/cm2  
+zetat=2.2        //time scale of activation of h current
+tau=1 
+
+gkm_dend =.1
+gkm_soma = 0.2 
+
+gkca_soma = 6.5 
+gkca_dend=3.25 
+
+// --------------------------------------------------------------
+// Axon geometry
+//
+// Similar to Mainen et al (Neuron, 1995)
+// --------------------------------------------------------------
+
+n_axon_seg = 5
+
+proc create_axon() {
+
+  create iseg,hill,myelin[n_axon_seg],node[n_axon_seg]
+
+  soma {
+    equiv_diam = sqrt(area(.5)/(4*PI))
+
+    // area = equiv_diam^2*4*PI
+  }
+  if (numarg()) equiv_diam = $1
+
+  iseg {                // initial segment between hillock + myelin
+     L = 15
+     nseg = 5
+     diam = equiv_diam/10        // see Sloper and Powell 1982, Fig.71
+  }
+
+  hill {                
+    L = 10
+    nseg = 5
+    diam(0:1) = 4*iseg.diam:iseg.diam
+  }
+
+  // construct myelinated axon with nodes of ranvier
+
+  for i=0,n_axon_seg-1 {
+    myelin[i] {         // myelin element
+      nseg = 5
+      L = 100
+      diam = iseg.diam         
+    }
+    node[i] {           // nodes of Ranvier
+      nseg = 1
+      L = 1.0           
+      diam = iseg.diam*.75       // nodes are thinner than axon
+    }
+  }
+
+  soma connect hill(0), 0.5
+  hill connect iseg(0), 1
+  iseg connect myelin[0](0), 1
+  myelin[0] connect node[0](0), 1
+
+  for i=0,n_axon_seg-2  { 
+      node[i] connect myelin[i+1](0), 1 
+      myelin[i+1] connect node[i+1](0), 1
+  }
+}
+
+// --------------------------------------------------------------
+// Spines
+// --------------------------------------------------------------
+
+      // Based on the "Folding factor" described in
+      // Jack et al (1989), Major et al (1994)
+      // note, this assumes active channels are present in spines 
+      // at same density as dendrites
+
+spine_dens = 1
+      // just using a simple spine density model due to lack of data on some 
+      // neuron types.
+
+spine_area = 0.83 // um^2  -- K Harris
+
+proc add_spines() { local a
+  forsec $o1 {
+    a =0
+    for(x) a=a+area(x)
+
+    F = (L*spine_area*spine_dens + a)/a
+
+    L = L * F^(2/3)
+    for(x) diam(x) = diam(x) * F^(1/3)
+  }
+}
+
+// --------------------------------------------------------------
+// Initialization routines
+// --------------------------------------------------------------
+
+proc init_cell() {	
+
+
+  // passive
+  forall {
+    insert pas
+    Ra = ra 
+    cm = c_m 
+    g_pas = 1/rm
+    e_pas = v_init
+  }
+
+  d=dend11[70].diam                 // exchange the original diam of dend11[70] and dend11[58] to make it reseanable
+  dend11[70].diam=dend11[58].diam
+  dend11[58].diam=d
+
+  // exceptions along the axon
+  forsec "myelin" cm = cm_myelin
+  forsec "node" g_pas = g_pas_node
+
+  // active 
+  // axon
+  forall insert na      
+  forsec "myelin" gbar_na = gna_myelin
+  forsec "hill" gbar_na = gna_node
+  forsec "iseg" gbar_na = gna_node
+  forsec "node" gbar_na = gna_node
+  forsec "iseg" { insert kv  gbar_kv = gkv_axon }
+  forsec "hill" { insert kv  gbar_kv = gkv_axon }
+
+  // dendrites
+  forsec dendritic_only {
+                 gbar_na = gna_dend
+    insert kv    gbar_kv = gkv_dend 
+    insert km    gbar_km  = gkm_dend
+    insert kca   gbar_kca = gkca_dend
+    insert sca    gbar_sca = gca_dend
+    insert cad2  //calcium concentration
+    cao = 2.5  //mM
+  }
+
+  // soma
+  soma {
+                 gbar_na = gna_soma
+    insert kv    gbar_kv = gkv_soma 
+    insert km    gbar_km = gkm_soma
+    insert kca   gbar_kca = gkca_soma 
+    insert sca   gbar_sca = gca_soma
+    insert cad2                                   
+    cao = 2.5                //mM
+  }
+
+for i=22,82 {
+    access dend11[i]
+    insert hd
+    ghdbar_hd=ghbar
+    zetat_hd=zetat     ////time scale of activation of h current
+    tau_hd=tau                                                         
+}
+
+
+//////////////////////////////////calcium for hot zone////////////////////////////////////////////
+dend11[23].gbar_sca = gca_proximal
+dend11[24].gbar_sca = gca_proximal
+dend11[39].gbar_sca= gca_proximal
+
+access dend11[58]
+        for j = 1, nseg/2 {
+           node_pos = (2*j-1)/(2*nseg)
+           gbar_sca(node_pos)=gca_proximal
+        }
+
+// --------------------------------------------------------------
+// seems to be necessary for 3d cells to shift Na kinetics -5 mV
+// --------------------------------------------------------------
+
+  forall if(ismembrane("k_ion")) ek = Ek
+  forall if(ismembrane("na_ion")) {
+    ena = Ena
+    vshift_na = -5
+  }
+
+    forall if(ismembrane("ca_ion")) {
+    //eca = 140
+    ion_style("ca_ion",0,1,0,0,0)
+    vshift_ca = -10
+  } 
+
+}
+
+// --------------------------------------------------------------
+// loading cell
+// --------------------------------------------------------------
+
+proc load_3dcell() {
+  // $s1 filename
+
+  aspiny = 0
+  forall delete_section()
+  xopen($s1)
+  access soma
+  forsec "axon" delete_section()
+  dendritic = new SectionList()
+
+  // make sure no compartments exceed 20 uM length
+
+  forall {
+    if(nseg < L/20) { print secname(), " not accurate" nseg=L/20+1 }
+    dendritic.append()
+  }    
+
+  
+  dendritic_only = new SectionList()
+  forsec dendritic dendritic_only.append()
+  soma dendritic_only.remove()
+
+  distaldend = new SectionList()
+  basaldend = new SectionList()
+       
+  for i=23,82 {
+       access dend11[i]
+       if (i!=23 && i!=24 && i!=39 && i!=58) {
+          distaldend.append()
+       }
+  }
+
+  forsec dendritic_only basaldend.append()
+  forsec distaldend basaldend.remove()
+  dend11[22] basaldend.remove()
+  dend11[23] basaldend.remove()
+  dend11[24] basaldend.remove()
+  dend11[39] basaldend.remove()
+  dend11[58] basaldend.remove()
+
+  create_axon()  
+  if (!aspiny) add_spines(dendritic_only,spine_dens)
+}
+
+// --------------------------------------------------------------
+// Main Loading procedure
+// --------------------------------------------------------------
+
+proc LoadNInit() {
+  load_3dcell("j4a.hoc")
+  init_cell()
+}
+LoadNInit()
+
+proc initialize()  {
+     finitialize(v_init)
+     fcurrent()
+} 
+
+//////////////////////////////////////////////////////////////////////////////////////////
+/*simulation control*/
+//////////////////////////////////////////////////////////////////////////////////////////
+
+tstop = 11000  //ms
+dt = 0.05      //ms
+nrnmainmenu()
+{
+steps_per_ms = 20
+xpanel("RunControl", 0)
+xbutton("Init, Run & Save","circ_run()")
+xbutton("Stop","stoprun=1")
+xbutton("Single Step","steprun()")
+t = 0
+xvalue("t","t", 2 )
+xvalue("Tstop","tstop", 1,"tstop_changed()", 0, 1 )
+
+xvalue("dt","dt", 1,"setdt()", 0, 1 )
+
+xvalue("Points plotted/ms","steps_per_ms", 1,"setdt()", 0, 1 )
+xvalue("Real Time","realtime", 0,"", 0, 1 )
+xpanel(701,27)
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+/*plot*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+objref newgraphv
+newgraphv = new Graph(0)
+addplot(newgraphv,0)
+newgraphv.size (0,tstop+100,-100, 50)
+newgraphv.view(0, -100, tstop+100, 150, 6, 0, 500, 200)  //.view(mleft, mbottom, mwidth, mheight, wleft,wtop, wwidth, wheight)
+
+newgraphv.addvar("soma.v(0.5)", 1, 2, 0.6, 0.9, 2) //colour, line width,... 
+newgraphv.addvar("dend11[26].v(0.5)", 3, 2, 0.6, 0.9, 2)
+//newgraphv.label("Distributed Stimulus")
+
+/*
+objref newgraphc
+newgraphc = new Graph(0)
+addplot(newgraphc,0)
+newgraphc.size (0,tstop+100,-100, 50)
+newgraphc.view(0, -0.003, tstop+100, 0.005, 6, 250, 500, 200) 
+//newgraphc.addvar("dend11[26].ica(0.5)", 2, 2, 0.6, 0.9, 2)
+newgraphc.addvar("dend11[26].i_hd(0.5)", 1, 2, 0.6, 0.9, 2)
+//newgraphc.addvar("dend11[26].ina(0.5)", 2, 1, 0.6, 0.9, 2)
+*/
+
+/*
+objectvar save_window_
+objectvar scene_vector
+{
+save_window_ = new Graph(0)
+save_window_.size(0,tstop+100,0,0.017)
+scene_vector = save_window_
+{save_window_.view(0, 0.3, tstop+100, 0.4, 6, 600, 500, 200)}
+graphList[2].append(save_window_)
+save_window_.save_name("graphList[2].")
+//save_window_.addexpr("AMPAsyn[0].g", 1, 1, 0.8, 0.9, 2)		/////later change this
+//save_window_.addexpr("NMDAsyn[0].g", 7, 1, 0.8, 0.9, 2)
+//save_window_.addexpr("GABAsyn[0].g", 3, 1, 0.8, 0.9, 2)
+save_window_.addexpr("GABAbsyn[0].g", 2, 1, 0.8, 0.9, 2)
+}
+*/
+/////////////////////////////////////////////////////////////////////
+/*initialize, run and save soma.v(.5)*/
+/////////////////////////////////////////////////////////////////////
+
+N_parameter=1  //number of loops for different sets of parameters
+N_frequency=21 //number of loops for different frequencies of oscillaotory input 
+
+objref recv[N_frequency]
+objref savdata_somav
+objref tempmatrix
+
+
+strdef basename1, extension1, filename1           
+
+objectvar savdata_somav
+basename1 = "Outputdata/somav_disperi_delta_"
+extension1 = "dat"
+
+
+proc savedata()   {
+
+
+for i=0,N_frequency-1 {
+    recv[i]=new Vector()
+    recv[i].record(&soma.v(0.5))
+    //recv[i].record(&dend11[26].v(0.5))
+
+}	
+   
+    initialize()
+    run()	
+    sprint(filename1, "%s%g.%s", basename1,delta,extension1)
+    savdata_somav = new File(filename1)
+    savdata_somav.wopen()                       //comment this line if not saving the data
+
+    tempmatrix.setrow(index,recv[index])
+    tempmatrix.fprint(0,savdata_somav, " %g")
+    savdata_somav.close()
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+proc circ_run() {
+
+ for nn=1,N_parameter {
+
+    tempmatrix = new Matrix()
+    tempmatrix.resize(N_frequency, tstop/dt+1)
+   
+    index=0
+    events=2000      //total events of GABAa synapses per second, 1000+(nn-1)*500
+    alfa=1           //scaling parameter for changing the time constant of GABAa synapses, 1.5+0.5*(nn-1)
+    amp1=0.5         //tau1 of the GABAa synapses
+    amp2=alfa*7      //tau2 of the GABAa synapses
+    delta=5          //value of sigma^2 of Gaussian distribution for periodic inhibitory inputs
+
+    nsyn_start_GLUT=200         //number of distal GLUT synapses
+
+    for mm=1,N_frequency {
+
+        //basal inputs
+
+        gamma1=0.025        //nS single channel conductance of NMDA synapses         
+        AMPA_weight1=100e-6 //uS
+        GABA_weight1=0      //uS
+
+        //distal inputs
+
+        gamma=0.025         //nS  single channel conductance of NMDA synapses        
+        AMPA_weight=100e-6  //uS
+        GABA_weight=1000e-6 //uS 
+        GABAb_weight=0      //uS
+
+
+        StimStart=0
+
+        nsyn_start_GLUT1=100        //number of basal GLUT synapses    
+
+        GABAprefreq_per1=40         //frequency of each somatic GABAa synapse
+
+        xopen("basal_soma_Poissongaba_stimulus.hoc")                    //basal Poisson excitation + somatic Poisson inhibition
+        //xopen("basal_soma_periodicgaba_stimulus.hoc")                 //basal Poisson excitation + somatic periodic inhibition
+                    
+
+        GABAprefreq_per=2+(mm-1)*4                                      //frequency of each distal GABAa synapse (2 to 82 Hz)
+
+        xopen("distal_distributed_periodic_gaba_stimulus.hoc")          //distal periodic GABAa input
+                 
+        //xopen("distal_distributed_Poisson_gaba_stimulus.hoc")         //distal Possion GABAa input   
+
+        //xopen("distal_distributed_periodic_gaba+gabab_stimulus.hoc")  //distal periodic GABAa + GABAb input  
+                 
+        //xopen("distal_distributed_Poisson_GABAb_stimulus.hoc")        //distal Possion GABAb input
+
+
+        savedata()
+        index=index+1
+     }
+  }
+}
+
+proc demo_run() {
+  tstop_orig=tstop 
+  N_frequency_orig = N_frequency
+  tstop = 250 
+  N_frequency = 1
+
+  circ_run()
+
+  tstop=tstop_orig
+  Graph[0].exec_menu("View = plot")
+  N_frequency=N_frequency_orig
+}
+
+xpanel("Li et al. 2013 run choices")
+  xbutton("Short demo run", "demo_run()")
+  xbutton("Circular run","circ_run()")
+xpanel()

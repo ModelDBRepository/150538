@@ -1,0 +1,333 @@
+//distal Poisson GLUT + Periodic GABAa
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*======================================================================================================================*/
+/*distribute synapses over the distal dendrites*/
+/*=========================================*/
+/////////////////////////////////////////////
+
+Glucon=60           //uM   glutamate concentration
+
+cell_area = 0
+segnum = 1
+totnseg = 0
+
+forsec distaldend {
+    for i = 1, nseg {
+        node_pos = (2*i -1)/(2*nseg)
+        cell_area = cell_area + area(node_pos)
+        totnseg = totnseg +1
+    }
+}
+
+fprint("cell area = %f um^2\n" , cell_area)
+fprint("total number of segments in cell = %d\n" , totnseg)
+
+nsec = 0
+forall {
+	nsec = nsec+1
+}
+fprint("number of sections = %d\n", nsec)
+ 
+//gamma=0.025  //nS, single channel conductance of NMDA synapses 
+//AMPA_weight=100e-6  //uS
+//GABA_weight=1000e-6 //uS
+
+GLUprefreq_per = 3            //Hz
+//GABAprefreq_per = 40
+
+//events = 6000
+
+//nsyn_start_GLUT = 300/10
+nsyn_start_GABA = events/GABAprefreq_per
+
+pathnum = 1
+
+GLUprefreq = GLUprefreq_per*nsyn_start_GLUT
+GABAprefreq = GABAprefreq_per*nsyn_start_GABA
+ 
+
+numGLUT=GLUprefreq*tstop*0.001
+
+	print "GLUprefreq_per = ", GLUprefreq_per
+	print "GABAprefreq_per = ", GABAprefreq_per
+
+densityGLUT = cell_area/nsyn_start_GLUT
+densityGABA = cell_area/nsyn_start_GABA
+fprint("densityGLUT = %f (um^2)/synapse\n", densityGLUT)
+fprint("densityGABA = %f (um^2)/synapse\n\n\n", densityGABA)
+ 
+objref AMPAsyn[nsyn_start_GLUT], NMDAsyn[nsyn_start_GLUT], ns_GLUT[nsyn_start_GLUT]
+objref GABAsyn[nsyn_start_GABA]
+ 
+objref nonint_nsynvec
+nonint_nsynvec = new Vector(1)      //this is cause the floor function can only used for vectors!
+ 
+/*initializations for GLUT synapses*/
+leftover_area = 0
+nsyn_used_GLUT = 0
+nsyn_left_GLUT = nsyn_start_GLUT
+ 
+ 
+segnum_cell = 0
+
+forsec distaldend {
+    //fprint("SECTION %s\n", secname())
+    //fprint("number of segments in section = %d\n", nseg)
+    //fprint("number of GLUT synapses left to distribute = %d\n", nsyn_left_GLUT)
+   
+    segnum_sec = 1                                  				//initialization
+    nsynGLUTsec = 0                         	   		     	 	//initialization
+    while(nseg >= segnum_sec && nsyn_left_GLUT>0) {
+        //fprint("segment number %d\n", segnum_sec)
+        //fprint("we are on segment # %d of a total of %d segments in the cell\n", segnum_cell+1, totnseg)
+        node_pos = (2*segnum_sec-1)/(2*nseg)
+        area_seg = area(node_pos)         					//microns^2, returns the area of the segment which contains node point
+        //fprint("area of segment %d = %f um^2\n", segnum_sec, area_seg)
+        //fprint("leftover area = %f um^2\n", leftover_area)
+        area_avail = leftover_area + area_seg
+        nonint_nsyn = area_avail/densityGLUT
+        nonint_nsynvec.x[0] = nonint_nsyn
+        nonint_nsynvec.floor()
+        nsyn_allocate = nonint_nsynvec.x[0] 
+        leftover_area = (nonint_nsyn - nsyn_allocate)*densityGLUT
+        
+        nsyn_allocated = 0                      			//initialization
+        while (nsyn_allocate>nsyn_allocated  &&   nsyn_left_GLUT>0)  {
+        	AMPAsyn[nsyn_used_GLUT] = new Exp2Syn(node_pos)       //put a synapse in the center of each segment
+		AMPAsyn[nsyn_used_GLUT].tau1 = .5			//ms
+		AMPAsyn[nsyn_used_GLUT].tau2 = 2			//ms
+		AMPAsyn[nsyn_used_GLUT].e = 0				//mV
+
+                NMDAsyn[nsyn_used_GLUT] = new NMDA_TESTED(node_pos)			
+                NMDAsyn[nsyn_used_GLUT].nchan  =  1  //  (pS)  set number of channels (maximum conductance)
+                NMDAsyn[nsyn_used_GLUT].gamma = gamma // (ns) single channel conductance
+                NMDAsyn[nsyn_used_GLUT].del = 0       //delay of Neurotransmitter pulse
+                NMDAsyn[nsyn_used_GLUT].dur = 10     //duration of Neurotransmitter pulse
+                NMDAsyn[nsyn_used_GLUT].conc = 0     // uM
+           
+                ns_GLUT[nsyn_used_GLUT] = new NetStim(node_pos)           
+                ns_GLUT[nsyn_used_GLUT].interval = 1/GLUprefreq_per*1000
+                ns_GLUT[nsyn_used_GLUT].start = StimStart//0
+                ns_GLUT[nsyn_used_GLUT].noise = 1
+                ns_GLUT[nsyn_used_GLUT].number = numGLUT
+
+       	        nsyn_used_GLUT = nsyn_used_GLUT + 1
+       	        nsyn_left_GLUT = nsyn_start_GLUT - nsyn_used_GLUT
+       	        nsyn_allocated = nsyn_allocated +1
+       	        nsynGLUTsec =  nsynGLUTsec + 1
+        }
+        //fprint("number of GLUT synapses allocated for this segment = %d\n", nsyn_allocated)
+        segnum_sec = segnum_sec + 1
+        segnum_cell = segnum_cell + 1
+    }
+    //fprint("number of GLUT synapses used for section %s = %d\n", secname(), nsynGLUTsec)
+}
+//fprint("went through %d segments out of total %d segments in the cell\n", segnum_cell, totnseg)
+fprint("total number GLUT synapses used in distal dendrites = %d out of %d GLUT synapses available\n\n\n\n\n\n", nsyn_used_GLUT, nsyn_start_GLUT)
+
+   
+fprint("=====================================================================================================================================\n")
+fprint("=====================================================================================================================================\n")
+fprint("=====================================================================================================================================\n\n\n\n\n\n")
+ 
+ 
+/*initializations for GABA synapses*/
+leftover_area = 0
+nsyn_used_GABA = 0
+nsyn_left_GABA = nsyn_start_GABA
+    
+ 
+segnum_cell = 0
+
+forsec distaldend {
+    //fprint("SECTION %s\n", secname())
+    //fprint("number of segments in section = %d\n", nseg)
+    //fprint("number of GABA synapses left to distribute = %d\n", nsyn_left_GABA)
+   
+    segnum_sec = 1                                 	 			//initialization
+    nsynGABAsec = 0                        		 			//initialization
+    while(nseg >= segnum_sec && nsyn_left_GABA>0) {
+        //fprint("segment number %d\n", segnum_sec)
+        //fprint("we are on segment # %d of a total of %d segments in the cell\n", segnum_cell+1, totnseg)
+        node_pos = (2*segnum_sec - 1)/(2*nseg)
+        area_seg = area(node_pos)         //microns^2, returns the area of the segment which contains node point
+        //fprint("area of segment %d = %f um^2\n", segnum_sec, area_seg)
+        //fprint("leftover area = %f um^2\n", leftover_area)
+        area_avail = leftover_area + area_seg
+        nonint_nsyn = area_avail/densityGABA
+        nonint_nsynvec.x[0] = nonint_nsyn
+        nonint_nsynvec.floor()
+        nsyn_allocate = nonint_nsynvec.x[0] 
+        leftover_area = (nonint_nsyn - nsyn_allocate)*densityGABA
+        
+        nsyn_allocated = 0                      				//initialization
+        while (nsyn_allocate>nsyn_allocated  &&   nsyn_left_GABA>0)  {
+        	GABAsyn[nsyn_used_GABA] = new Exp2Syn(node_pos)        	//put a synapse in the center of each segment
+		GABAsyn[nsyn_used_GABA].tau1= amp1  //.5         			//ms	
+		GABAsyn[nsyn_used_GABA].tau2 = amp2  //7         			//ms
+		GABAsyn[nsyn_used_GABA].e = -70	     			//mV
+
+                nsyn_used_GABA = nsyn_used_GABA + 1
+        	nsyn_left_GABA = nsyn_start_GABA - nsyn_used_GABA
+        	nsyn_allocated = nsyn_allocated +1
+       	        nsynGABAsec =  nsynGABAsec + 1
+        }
+        //fprint("number of GABA synapses allocated for this segment = %d\n", nsyn_allocated)
+        segnum_sec = segnum_sec + 1
+        segnum_cell = segnum_cell + 1
+    }
+    //fprint("number of GABA synapses used for section %s = %d\n", secname(), nsynGABAsec)
+} 
+//fprint("went through %d segments out of total %d segments in the cell\n", segnum_cell, totnseg)
+fprint("total number GABA synapses used in distal dendrites= %d out of %d GABA synapses available\n\n\n", nsyn_used_GABA, nsyn_start_GABA)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*======================================================================================================================================================*/
+/*create the spike time vectors for all the synapses*/
+/*==================================================*/
+//////////////////////////////////////////////////////
+
+nsynGLUT = nsyn_used_GLUT
+nsynGABA = nsyn_used_GABA
+
+strdef basename, aftername, extension, filename            
+
+objectvar gabafile
+
+basename = "Codes for periodic inhibition/GABAprespikes_delta2_"
+
+aftername = "_"
+extension = "dat"
+
+sprint(filename, "%s%g%s%d%s%d.%s", basename, delta, aftername, GABAprefreq_per, aftername, events, extension)
+
+
+//////////////////gradually turn on oscillatory inhibition/////////////////////////////////////////////
+/*
+basename = "Codes for periodic inhibition/GABAprespikes_dis15Hz_gradpercycle_delta2_30-5_events1000-2000"  
+
+extension = "dat"
+
+sprint(filename, "%s.%s", basename, extension)
+*/
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+gabafile = new File(filename)
+gabafile.ropen()
+
+
+nsynvec_GABA = nsynGABA					//number of time vectors = number of synapses
+nspiketimes_GABA = gabafile.scanvar()       //number of spike times to be  read from the data file
+ 
+/*generate a vector of random numbers which represents the scrambled synapse indices*/
+
+
+objref s
+s = new Random()
+objref randindvec_GABA
+randindvec_GABA = new Vector(nspiketimes_GABA)
+for m = 0, nspiketimes_GABA-1  {
+    randindvec_GABA.x[m] = s.uniform(0, nsynvec_GABA)     //generates noninteger random numbers and puts them in randindvec
+}
+randindvec_GABA.floor()  				  //floors the elements to integers between 1 and nsynvec
+
+
+
+/*create vectors to hold the spike times for each synapse*/
+
+
+objref syntimevec_GABA[nsynvec_GABA]
+for i = 0, nsynvec_GABA-1  {
+   syntimevec_GABA[i] = new Vector()   
+}
+
+
+/*fill in the time vectors with randomly distributed spike times*/
+
+
+for n = 0, nspiketimes_GABA-1  {
+	t_0 = gabafile.scanvar()		        //extract a spike time
+	randind = randindvec_GABA.x[n]	  	  //pick synapse from random index vector to assign this time
+	syntimevec_GABA[randind].resize(syntimevec_GABA[randind].size()+1)
+	syntimevec_GABA[randind].x[syntimevec_GABA[randind].size()-1] = t_0
+}
+
+/////////////////////////////////////////////////////
+/*save spike times for GABA synapses*/
+/////////////////////////////////////////////////////
+/*
+objref savdata_spike
+objref spikematrix
+
+savdata_spike = new File()
+spikematrix = new Matrix()
+spikematrix.resize(nsynGABA, 400)      // for 0-8s
+
+for p=0, nsynGABA-1 { 
+
+         for q=0, syntimevec_GABA[p].size()-1 {
+                  spikematrix.x[p][q]=syntimevec_GABA[p].x(q)
+         }
+
+}
+
+    savdata_spike.wopen("Outputdata/spiketime_per_20Hz_delta5.dat")
+    spikematrix.fprint(savdata_spike, " %g")
+    savdata_spike.close()
+*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*create netcon objects and load syntimevecs into the event queue for the netcon objects*//////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+objectvar ncAMPA[nsynGLUT],  null 
+objectvar ncNMDA[nsynGLUT] 
+objectvar ncGABA[nsynGABA],  fih_GABA
+
+
+proc loadqueue_GABA()  {local ii, jj
+	for jj = 0, nsynGABA-1	{
+		//print "initializing events for GABA synapse ", jj
+		for ii = 0, syntimevec_GABA[jj].size()-1  {
+	            ncGABA[jj].event(syntimevec_GABA[jj].x[ii])
+		}
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+
+for k = 0, nsynGLUT-1  {
+	ncAMPA[k] = new NetCon(ns_GLUT[k], AMPAsyn[k])
+    		ncAMPA[k].weight = AMPA_weight      		      //uS
+	ncNMDA[k] = new NetCon(ns_GLUT[k], NMDAsyn[k])
+		ncNMDA[k].weight = (Glucon)  			//uM   25e-6
+}
+
+
+for k = 0, nsynGABA-1  {
+	ncGABA[k] = new NetCon(null, GABAsyn[k])
+    		ncGABA[k].weight = GABA_weight     		      //uS
+}
+fih_GABA = new FInitializeHandler("loadqueue_GABA()")
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* total conductance of each kind receptor*/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//fprint("frequency of distal gaba synapses = %d", GABAprefreq_per)
+fprint("%s", filename)
+//fprint("%s", filename1)
+fprint("number of basal ex synapses = %d", nsyn_start_GLUT1)
+fprint("number of distal ex synapses = %d", nsyn_start_GLUT)
+fprint("delta=%g", delta)
+fprint("events=%g", events)
+fprint("tau1=%g", amp1)
+fprint("tau2=%g", amp2)
+fprint("gca_proximal=%g", gca_proximal)
+fprint("gnmda=%g", gamma)
+fprint("g_gaba=%g", GABA_weight)
+fprint("ghbar=%g", ghbar)
+fprint("zetat=%g", zetat)
+fprint("htau=%g", tau)

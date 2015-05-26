@@ -1,0 +1,195 @@
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*======================================================================================================================*/
+/*GLUT Poisson synapses are distributed over all basal dendrites
+  GABA Poisson stimulus is pointed at soma*/
+/*======================================================================================================================*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*======================================================================================================================*/
+/*distribute synapses over the basal dendrites*/
+/*=========================================*/
+/////////////////////////////////////////////
+
+Glucon=60           //uM   glutamate concentration
+
+cell_area1 = 0
+totnseg1 = 0
+ 
+forsec basaldend {
+    for i = 1, nseg {
+        node_pos1 = (2*i -1)/(2*nseg)
+        cell_area1 = cell_area1 + area(node_pos1)
+        totnseg1 = totnseg1 +1
+    }
+}
+fprint("cell area = %f um^2\n" , cell_area1)
+fprint("total number of segments in cell = %d\n" , totnseg1)
+
+//gamma1=0.025                              //(nS)
+//AMPA_weight1=100e-6                      //(uS)
+//GABA_weight1=1000e-6                      //(uS)
+
+GLUprefreq_per1 = 3             //Hz
+//GABAprefreq_per1 = 40
+
+//events = 6000
+
+//nsyn_start_GLUT1 = 1000		
+nsyn_start_GABA1 = events/GABAprefreq_per1
+
+
+GLUprefreq1 = GLUprefreq_per1*nsyn_start_GLUT1                 
+GABAprefreq1 = GABAprefreq_per1*nsyn_start_GABA1                
+ 
+numGLUT1=GLUprefreq1*tstop*0.001
+numGABA1=GABAprefreq1*tstop*0.001
+ 
+densityGLUT1 = cell_area1/nsyn_start_GLUT1
+fprint("densityGLUT = %f (um^2)/synapse\n", densityGLUT1)
+ 
+ 
+objref AMPAsyn1[nsyn_start_GLUT1], NMDAsyn1[nsyn_start_GLUT1], ns_GLUT1[nsyn_start_GLUT1], ns_GABA1
+objref GABAsyn1
+ 
+objref nonint_nsynvec1
+nonint_nsynvec1 = new Vector(1)      //this is cause the floor function can only used for vectors!
+ 
+/*initializations for GLUT synapses*/
+leftover_area1 = 0
+nsyn_used_GLUT1 = 0
+nsyn_left_GLUT1 = nsyn_start_GLUT1
+
+segnum_cell1 = 0
+                                                      
+forsec basaldend {
+    //fprint("SECTION %s\n", secname())
+    //fprint("number of segments in section = %d\n", nseg)
+    //fprint("number of GLUT synapses left to distribute = %d\n", nsyn_left_GLUT)
+   
+    segnum_sec1 = 1                                  				//initialization
+    nsynGLUTsec1 = 0                         	   		     	 	//initialization
+    while(nseg >= segnum_sec1 && nsyn_left_GLUT1>0) {
+        //fprint("segment number %d\n", segnum_sec1)
+        //fprint("we are on segment # %d of a total of %d segments in the cell\n", segnum_cell+1, totnseg)
+        node_pos1 = (2*segnum_sec1-1)/(2*nseg)
+        area_seg1 = area(node_pos1)         					//microns^2, returns the area of the segment which contains node point
+        //fprint("area of segment %d = %f um^2\n", segnum_sec1, area_seg1)
+        //fprint("leftover area = %f um^2\n", leftover_area1)
+        area_avail1 = leftover_area1 + area_seg1
+        nonint_nsyn1 = area_avail1/densityGLUT1
+        nonint_nsynvec1.x[0] = nonint_nsyn1
+        nonint_nsynvec1.floor()
+        nsyn_allocate1 = nonint_nsynvec1.x[0] 
+        leftover_area1 = (nonint_nsyn1 - nsyn_allocate1)*densityGLUT1
+        
+        nsyn_allocated1 = 0                      			//initialization
+        while (nsyn_allocate1>nsyn_allocated1  &&   nsyn_left_GLUT1>0)  {
+        	AMPAsyn1[nsyn_used_GLUT1] = new Exp2Syn(node_pos1)       //put a synapse in the center of each segment
+		AMPAsyn1[nsyn_used_GLUT1].tau1 = .5			//ms
+		AMPAsyn1[nsyn_used_GLUT1].tau2 = 2			//ms
+		AMPAsyn1[nsyn_used_GLUT1].e = 0				//mV
+
+                NMDAsyn1[nsyn_used_GLUT1] = new NMDA_TESTED(node_pos1)			
+                NMDAsyn1[nsyn_used_GLUT1].nchan  =  1  //  (pS)  set number of channels (maximum conductance)
+                NMDAsyn1[nsyn_used_GLUT1].gamma = gamma1 // (ns) single channel conductance
+                NMDAsyn1[nsyn_used_GLUT1].del = 0       //delay of Neurotransmitter pulse
+                NMDAsyn1[nsyn_used_GLUT1].dur = 10     //duration of Neurotransmitter pulse
+                NMDAsyn1[nsyn_used_GLUT1].conc = 0     // uM
+
+       	        ns_GLUT1[nsyn_used_GLUT1] = new NetStim(node_pos1)
+                ns_GLUT1[nsyn_used_GLUT1].interval = 1/GLUprefreq_per1*1000
+                ns_GLUT1[nsyn_used_GLUT1].start = 0
+                ns_GLUT1[nsyn_used_GLUT1].noise = 1
+                ns_GLUT1[nsyn_used_GLUT1].number = numGLUT1
+
+
+         nsyn_used_GLUT1 = nsyn_used_GLUT1 + 1
+       	 nsyn_left_GLUT1 = nsyn_start_GLUT1 - nsyn_used_GLUT1
+       	 nsyn_allocated1 = nsyn_allocated1 +1
+       	 nsynGLUTsec1 =  nsynGLUTsec1 + 1
+        }
+        //fprint("number of GLUT synapses allocated for this segment = %d\n", nsyn_allocated1)
+        segnum_sec1 = segnum_sec1 + 1
+        segnum_cell1 = segnum_cell1 + 1
+    }
+    fprint("number of GLUT synapses used for section %s = %d\n", secname(), nsynGLUTsec1)
+}
+//fprint("went through %d segments out of total %d segments in the cell\n", segnum_cell, totnseg1)
+fprint("total number GLUT synapses used in cell = %d out of %d GLUT synapses available\n", nsyn_used_GLUT1, nsyn_start_GLUT1)
+
+
+
+
+   
+fprint("=====================================================================================================================================\n")
+fprint("=====================================================================================================================================\n")
+fprint("=====================================================================================================================================\n\n\n\n\n\n")
+ 
+ 
+
+/*initializations for GABA synapses*/
+
+soma { 
+      GABAsyn1 = new Exp2Syn(0.5)        	//put a synapse in the center of each segment
+      GABAsyn1.tau1= amp1 //.5         			//ms	
+      GABAsyn1.tau2 = amp2 //7         			//ms
+      GABAsyn1.e = -70	     			//mV
+
+
+       	   ns_GABA1 = new NetStim(0.5)
+           ns_GABA1.interval = 1/events*1000
+           ns_GABA1.start = 0
+           ns_GABA1.noise = 1
+           ns_GABA1.number = numGABA1
+} 
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*======================================================================================================================================================*/
+/*create the spike time vectors for all the synapses*/
+/*==================================================*/
+//////////////////////////////////////////////////////
+
+nsynGLUT1 = nsyn_used_GLUT1
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*create netcon objects and load syntimevecs into the event queue for the netcon objects*//////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+objectvar ncAMPA1[nsynGLUT1]     
+objectvar ncNMDA1[nsynGLUT1]  
+objectvar ncGABA1
+
+
+
+//////////////////////////////////////////////////////////////////////////////////
+
+for k = 0, nsynGLUT1-1  {
+	ncAMPA1[k] = new NetCon(ns_GLUT1[k], AMPAsyn1[k])
+    		ncAMPA1[k].weight = AMPA_weight1      		      //uS
+	ncNMDA1[k] = new NetCon(ns_GLUT1[k], NMDAsyn1[k])
+		ncNMDA1[k].weight = (Glucon)  			//uM   25e-6
+}
+
+ncGABA1 = new NetCon(ns_GABA1, GABAsyn1)
+ncGABA1.weight = GABA_weight1   //uS
+
+ 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* total conductance of each kind receptor*/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+fprint("somatic Poisson inhibition")
+fprint("number of basal ex synapses = %d", nsyn_start_GLUT1)
+fprint("delta=%g", delta)
+fprint("events=%g", events)
+fprint("tau1=%g", amp1)
+fprint("tau2=%g", amp2)
+fprint("gca_proximal=%g", gca_proximal)
+fprint("g_gaba=%g", GABA_weight1)
+fprint("ghbar=%g", ghbar)
+
+
